@@ -28,12 +28,12 @@ type RequestLog struct {
 }
 
 type Todo struct {
-	ID          int    `json:"id"`
+	ID          int    `json:"-"`
 	Username    string `json:"username"`
 	Description string `json:"description"`
 	Date        string `json:"date"`
 	Time        string `json:"time"`
-	CreatedAt   string `json:"created_at"`
+	CreatedAt   string `json:"-"`
 }
 
 var todoFormTmpl = template.Must(template.New("todo").Parse(`<!DOCTYPE html>
@@ -176,6 +176,74 @@ func tasksHandler(db *sql.DB) http.HandlerFunc {
 	}
 }
 
+func tasksByDateHandler(db *sql.DB, offset int) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		date := time.Now().AddDate(0, 0, offset).Format("2006-01-02")
+
+		rows, err := db.Query(
+			`SELECT id, username, description, date, time, created_at FROM todos
+			 WHERE date = ? ORDER BY time`,
+			date,
+		)
+		if err != nil {
+			http.Error(w, "failed to query todos", http.StatusInternalServerError)
+			return
+		}
+		defer rows.Close()
+
+		var todos []Todo
+		for rows.Next() {
+			var t Todo
+			if err := rows.Scan(&t.ID, &t.Username, &t.Description, &t.Date, &t.Time, &t.CreatedAt); err != nil {
+				http.Error(w, "failed to scan row", http.StatusInternalServerError)
+				return
+			}
+			todos = append(todos, t)
+		}
+		if todos == nil {
+			todos = []Todo{}
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(todos)
+	}
+}
+
+func weeklyTasksHandler(db *sql.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		now := time.Now()
+		from := now.Format("2006-01-02")
+		to := now.AddDate(0, 0, 7).Format("2006-01-02")
+
+		rows, err := db.Query(
+			`SELECT id, username, description, date, time, created_at FROM todos
+			 WHERE date >= ? AND date <= ? ORDER BY date, time`,
+			from, to,
+		)
+		if err != nil {
+			http.Error(w, "failed to query todos", http.StatusInternalServerError)
+			return
+		}
+		defer rows.Close()
+
+		var todos []Todo
+		for rows.Next() {
+			var t Todo
+			if err := rows.Scan(&t.ID, &t.Username, &t.Description, &t.Date, &t.Time, &t.CreatedAt); err != nil {
+				http.Error(w, "failed to scan row", http.StatusInternalServerError)
+				return
+			}
+			todos = append(todos, t)
+		}
+		if todos == nil {
+			todos = []Todo{}
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(todos)
+	}
+}
+
 func todoHandler(db *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
@@ -252,6 +320,9 @@ func main() {
 	mux.HandleFunc("/logs", logsHandler(db))
 	mux.HandleFunc("/todo", todoHandler(db))
 	mux.HandleFunc("/tasks", tasksHandler(db))
+	mux.HandleFunc("/tasks/weekly", weeklyTasksHandler(db))
+	mux.HandleFunc("/tasks/today", tasksByDateHandler(db, 0))
+	mux.HandleFunc("/tasks/tomorrow", tasksByDateHandler(db, 1))
 
 	server := &http.Server{
 		Addr:         ":8080",
