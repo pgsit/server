@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Tasks Workflow Documentation</title>
+  <style>
+    body { font-family: sans-serif; max-width: 860px; margin: 2rem auto; padding: 0 1rem; color: #222; }
+    h1 { border-bottom: 2px solid #333; padding-bottom: 0.4rem; }
+    h2 { margin-top: 2rem; border-bottom: 1px solid #ccc; padding-bottom: 0.25rem; }
+    h3 { margin-top: 1.25rem; margin-bottom: 0.25rem; }
+    table { border-collapse: collapse; width: 100%; margin: 0.75rem 0; }
+    th, td { border: 1px solid #ccc; padding: 0.45rem 0.85rem; text-align: left; }
+    th { background: #f4f4f4; }
+    code { background: #f0f0f0; padding: 0.1rem 0.35rem; border-radius: 3px; font-size: 0.92em; }
+    pre { background: #f6f6f6; border: 1px solid #ddd; padding: 0.75rem 1rem; border-radius: 4px; overflow-x: auto; }
+    .method { display: inline-block; font-weight: bold; padding: 0.1rem 0.5rem; border-radius: 3px; font-size: 0.85em; }
+    .get  { background: #dff0d8; color: #3c763d; }
+    .post { background: #d9edf7; color: #31708f; }
+    .note { background: #fffbe6; border-left: 4px solid #f0ad4e; padding: 0.6rem 1rem; margin: 0.75rem 0; }
+  </style>
+</head>
+<body>
+
+<h1>Tasks Workflow Documentation</h1>
+<p>This document describes all task-related endpoints and the end-to-end workflow for creating and viewing todos.</p>
+
+<h2>Overview</h2>
+<p>The tasks feature is built around a <code>todos</code> SQLite table. Users submit tasks via an HTML form and retrieve them through a set of filtered view and API endpoints.</p>
+
+<h2>Database Schema</h2>
+<pre>CREATE TABLE todos (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    username    TEXT    NOT NULL,   -- name of the person
+    description TEXT    NOT NULL,   -- multiline task description
+    date        TEXT    NOT NULL,   -- YYYY-MM-DD
+    time        TEXT    NOT NULL,   -- HH:MM
+    created_at  TEXT    NOT NULL    -- RFC3339 timestamp
+);</pre>
+
+<h2>Endpoints</h2>
+
+<h3><span class="method get">GET</span> <code>/todo</code> &nbsp;—&nbsp; Task Creation Form</h3>
+<p>Renders an HTML form for creating a new task.</p>
+<table>
+  <tr><th>Field</th><th>Widget</th><th>Notes</th></tr>
+  <tr><td>Name</td><td>Text input</td><td>Stored as <code>username</code></td></tr>
+  <tr><td>Date &amp; Time</td><td>Date-time picker</td><td>Defaults to current date/time</td></tr>
+  <tr><td>Description</td><td>Multiline textarea</td><td>6 rows</td></tr>
+</table>
+<div class="note">All fields are required. Submitting with any field empty re-renders the form with an inline error message and preserves entered values.</div>
+
+<h3><span class="method post">POST</span> <code>/todo</code> &nbsp;—&nbsp; Save Task</h3>
+<p>Accepts the form submission, validates all fields are non-empty, splits the <code>datetime-local</code> value into separate <code>date</code> and <code>time</code> columns, and inserts the record. On success, redirects to <code>GET /todo?saved</code> which shows a confirmation banner.</p>
+
+<h3><span class="method get">GET</span> <code>/tasks</code> &nbsp;—&nbsp; Redirect</h3>
+<p>Issues a <code>301 Moved Permanently</code> redirect to <code>/tasks/view</code>.</p>
+
+<h3><span class="method get">GET</span> <code>/tasks/view</code> &nbsp;—&nbsp; HTML Task List</h3>
+<p>Renders a full HTML page listing tasks in a table. Supports a <code>filter</code> query parameter.</p>
+<table>
+  <tr><th>Filter value</th><th>URL</th><th>Returns</th></tr>
+  <tr><td><code>all</code> (default)</td><td><code>/tasks/view</code> or <code>/tasks/view?filter=all</code></td><td>All tasks, ordered by date then time</td></tr>
+  <tr><td><code>today</code></td><td><code>/tasks/view?filter=today</code></td><td>Tasks for today, ordered by time</td></tr>
+  <tr><td><code>tomorrow</code></td><td><code>/tasks/view?filter=tomorrow</code></td><td>Tasks for tomorrow, ordered by time</td></tr>
+  <tr><td><code>week</code></td><td><code>/tasks/view?filter=week</code></td><td>Tasks from today through the next 7 days</td></tr>
+</table>
+<p>The page includes four center-aligned navigation buttons (All, Today, Tomorrow, Week) with the active filter highlighted. Past tasks (date before today) are rendered in <span style="color:green">green</span>.</p>
+
+<h3><span class="method get">GET</span> <code>/tasks/today</code> &nbsp;—&nbsp; JSON</h3>
+<p>Returns a JSON array of tasks scheduled for today, ordered by time.</p>
+
+<h3><span class="method get">GET</span> <code>/tasks/tomorrow</code> &nbsp;—&nbsp; JSON</h3>
+<p>Returns a JSON array of tasks scheduled for tomorrow, ordered by time.</p>
+
+<h3><span class="method get">GET</span> <code>/tasks/weekly</code> &nbsp;—&nbsp; JSON</h3>
+<p>Returns a JSON array of tasks between today and 7 days from now (inclusive), ordered by date then time.</p>
+
+<h2>JSON Response Shape</h2>
+<p>All JSON task endpoints return the same object structure. <code>id</code> and <code>created_at</code> are intentionally omitted from responses.</p>
+<pre>{
+  "username":    "Alice",
+  "description": "Prepare release notes",
+  "date":        "2026-04-28",
+  "time":        "14:00",
+  "past":        false
+}</pre>
+<p>The <code>past</code> field is <code>true</code> when the task's date is before today.</p>
+
+<h2>Workflow Summary</h2>
+<ol>
+  <li>User opens <code>/todo</code> in a browser — form pre-fills current date/time.</li>
+  <li>User fills in Name, Description, and adjusts the date/time picker, then submits.</li>
+  <li>Server validates all fields; on failure re-renders form with error; on success saves to DB and redirects back with a confirmation banner.</li>
+  <li>User browses to <code>/tasks/view</code> (or <code>/tasks</code>) to see all tasks with filter buttons.</li>
+  <li>Past tasks appear in green; active filter button is highlighted.</li>
+  <li>Programmatic clients can query <code>/tasks/today</code>, <code>/tasks/tomorrow</code>, or <code>/tasks/weekly</code> for JSON responses.</li>
+</ol>
+
+</body>
+</html>

@@ -33,6 +33,7 @@ type Todo struct {
 	Description string `json:"description"`
 	Date        string `json:"date"`
 	Time        string `json:"time"`
+	Past        bool   `json:"past"`
 	CreatedAt   string `json:"-"`
 }
 
@@ -147,6 +148,103 @@ func logsHandler(db *sql.DB) http.HandlerFunc {
 	}
 }
 
+var tasksViewTmpl = template.Must(template.New("tasksView").Parse(`<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><title>Tasks</title>
+<style>
+  body { font-family: sans-serif; padding: 1rem; }
+  .nav { display: flex; justify-content: center; gap: 0.75rem; margin-bottom: 1.25rem; }
+  .nav a {
+    display: inline-block; padding: 0.4rem 1.2rem;
+    border: 1px solid #888; border-radius: 4px;
+    text-decoration: none; color: #333; background: #f5f5f5;
+  }
+  .nav a.active { background: #333; color: #fff; border-color: #333; }
+  table { border-collapse: collapse; width: 100%; }
+  th, td { border: 1px solid #ccc; padding: 0.5rem 1rem; text-align: left; }
+  th { background: #f0f0f0; }
+  .past td { color: green; }
+</style>
+</head>
+<body>
+<h2 style="text-align:center">Tasks</h2>
+<div class="nav">
+  <a href="/tasks/view?filter=all"      {{if eq .Filter "all"}}class="active"{{end}}>All</a>
+  <a href="/tasks/view?filter=today"    {{if eq .Filter "today"}}class="active"{{end}}>Today</a>
+  <a href="/tasks/view?filter=tomorrow" {{if eq .Filter "tomorrow"}}class="active"{{end}}>Tomorrow</a>
+  <a href="/tasks/view?filter=week"     {{if eq .Filter "week"}}class="active"{{end}}>Week</a>
+</div>
+{{if not .Tasks}}
+<p style="text-align:center">No tasks found.</p>
+{{else}}
+<table>
+  <thead><tr><th>Name</th><th>Description</th><th>Date</th><th>Time</th></tr></thead>
+  <tbody>
+  {{range .Tasks}}
+  <tr class="{{if .Past}}past{{end}}">
+    <td>{{.Username}}</td>
+    <td>{{.Description}}</td>
+    <td>{{.Date}}</td>
+    <td>{{.Time}}</td>
+  </tr>
+  {{end}}
+  </tbody>
+</table>
+{{end}}
+</body>
+</html>`))
+
+func tasksViewHandler(db *sql.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		filter := r.URL.Query().Get("filter")
+		if filter == "" {
+			filter = "all"
+		}
+
+		today := time.Now().Format("2006-01-02")
+		tomorrow := time.Now().AddDate(0, 0, 1).Format("2006-01-02")
+		week := time.Now().AddDate(0, 0, 7).Format("2006-01-02")
+
+		var query string
+		var args []interface{}
+		switch filter {
+		case "today":
+			query = `SELECT id, username, description, date, time, created_at FROM todos WHERE date = ? ORDER BY time`
+			args = []interface{}{today}
+		case "tomorrow":
+			query = `SELECT id, username, description, date, time, created_at FROM todos WHERE date = ? ORDER BY time`
+			args = []interface{}{tomorrow}
+		case "week":
+			query = `SELECT id, username, description, date, time, created_at FROM todos WHERE date >= ? AND date <= ? ORDER BY date, time`
+			args = []interface{}{today, week}
+		default:
+			filter = "all"
+			query = `SELECT id, username, description, date, time, created_at FROM todos ORDER BY date, time`
+		}
+
+		rows, err := db.Query(query, args...)
+		if err != nil {
+			http.Error(w, "failed to query todos", http.StatusInternalServerError)
+			return
+		}
+		defer rows.Close()
+
+		var todos []Todo
+		for rows.Next() {
+			var t Todo
+			if err := rows.Scan(&t.ID, &t.Username, &t.Description, &t.Date, &t.Time, &t.CreatedAt); err != nil {
+				http.Error(w, "failed to scan row", http.StatusInternalServerError)
+				return
+			}
+			t.Past = t.Date < today
+			todos = append(todos, t)
+		}
+
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		tasksViewTmpl.Execute(w, map[string]interface{}{"Tasks": todos, "Filter": filter})
+	}
+}
+
 func tasksHandler(db *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		rows, err := db.Query(
@@ -165,6 +263,7 @@ func tasksHandler(db *sql.DB) http.HandlerFunc {
 				http.Error(w, "failed to scan row", http.StatusInternalServerError)
 				return
 			}
+			t.Past = t.Date < time.Now().Format("2006-01-02")
 			todos = append(todos, t)
 		}
 		if todos == nil {
@@ -198,6 +297,7 @@ func tasksByDateHandler(db *sql.DB, offset int) http.HandlerFunc {
 				http.Error(w, "failed to scan row", http.StatusInternalServerError)
 				return
 			}
+			t.Past = t.Date < time.Now().Format("2006-01-02")
 			todos = append(todos, t)
 		}
 		if todos == nil {
@@ -233,6 +333,7 @@ func weeklyTasksHandler(db *sql.DB) http.HandlerFunc {
 				http.Error(w, "failed to scan row", http.StatusInternalServerError)
 				return
 			}
+			t.Past = t.Date < time.Now().Format("2006-01-02")
 			todos = append(todos, t)
 		}
 		if todos == nil {
@@ -319,7 +420,8 @@ func main() {
 	mux.HandleFunc("/hello", helloHandler)
 	mux.HandleFunc("/logs", logsHandler(db))
 	mux.HandleFunc("/todo", todoHandler(db))
-	mux.HandleFunc("/tasks", tasksHandler(db))
+	mux.Handle("/tasks", http.RedirectHandler("/tasks/view", http.StatusMovedPermanently))
+	mux.HandleFunc("/tasks/view", tasksViewHandler(db))
 	mux.HandleFunc("/tasks/weekly", weeklyTasksHandler(db))
 	mux.HandleFunc("/tasks/today", tasksByDateHandler(db, 0))
 	mux.HandleFunc("/tasks/tomorrow", tasksByDateHandler(db, 1))
