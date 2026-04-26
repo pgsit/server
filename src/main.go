@@ -164,6 +164,12 @@ var tasksViewTmpl = template.Must(template.New("tasksView").Parse(`<!DOCTYPE htm
   th, td { border: 1px solid #ccc; padding: 0.5rem 1rem; text-align: left; }
   th { background: #f0f0f0; }
   .past td { color: green; }
+  .del-btn {
+    background: none; border: 1px solid #c00; color: #c00;
+    padding: 0.2rem 0.6rem; border-radius: 3px; cursor: pointer; font-size: 0.85em;
+  }
+  .del-btn:hover { background: #c00; color: #fff; }
+  .del-form { margin: 0; }
 </style>
 </head>
 <body>
@@ -178,7 +184,7 @@ var tasksViewTmpl = template.Must(template.New("tasksView").Parse(`<!DOCTYPE htm
 <p style="text-align:center">No tasks found.</p>
 {{else}}
 <table>
-  <thead><tr><th>Name</th><th>Description</th><th>Date</th><th>Time</th></tr></thead>
+  <thead><tr><th>Name</th><th>Description</th><th>Date</th><th>Time</th><th></th></tr></thead>
   <tbody>
   {{range .Tasks}}
   <tr class="{{if .Past}}past{{end}}">
@@ -186,6 +192,15 @@ var tasksViewTmpl = template.Must(template.New("tasksView").Parse(`<!DOCTYPE htm
     <td>{{.Description}}</td>
     <td>{{.Date}}</td>
     <td>{{.Time}}</td>
+    <td>
+      {{if not .Past}}
+      <form class="del-form" method="POST" action="/tasks/delete">
+        <input type="hidden" name="id" value="{{.ID}}">
+        <input type="hidden" name="filter" value="{{$.Filter}}">
+        <button class="del-btn" type="submit">Delete</button>
+      </form>
+      {{end}}
+    </td>
   </tr>
   {{end}}
   </tbody>
@@ -193,6 +208,31 @@ var tasksViewTmpl = template.Must(template.New("tasksView").Parse(`<!DOCTYPE htm
 {{end}}
 </body>
 </html>`))
+
+func deleteTaskHandler(db *sql.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		if err := r.ParseForm(); err != nil {
+			http.Error(w, "bad request", http.StatusBadRequest)
+			return
+		}
+		id := r.FormValue("id")
+		filter := r.FormValue("filter")
+		if filter == "" {
+			filter = "all"
+		}
+		if id != "" {
+			if _, err := db.Exec(`DELETE FROM todos WHERE id = ?`, id); err != nil {
+				http.Error(w, "failed to delete task", http.StatusInternalServerError)
+				return
+			}
+		}
+		http.Redirect(w, r, "/tasks/view?filter="+filter, http.StatusSeeOther)
+	}
+}
 
 func tasksViewHandler(db *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -422,6 +462,7 @@ func main() {
 	mux.HandleFunc("/todo", todoHandler(db))
 	mux.Handle("/tasks", http.RedirectHandler("/tasks/view", http.StatusMovedPermanently))
 	mux.HandleFunc("/tasks/view", tasksViewHandler(db))
+	mux.HandleFunc("/tasks/delete", deleteTaskHandler(db))
 	mux.HandleFunc("/tasks/weekly", weeklyTasksHandler(db))
 	mux.HandleFunc("/tasks/today", tasksByDateHandler(db, 0))
 	mux.HandleFunc("/tasks/tomorrow", tasksByDateHandler(db, 1))

@@ -65,6 +65,15 @@
   <tr><td><code>week</code></td><td><code>/tasks/view?filter=week</code></td><td>Tasks from today through the next 7 days</td></tr>
 </table>
 <p>The page includes four center-aligned navigation buttons (All, Today, Tomorrow, Week) with the active filter highlighted. Past tasks (date before today) are rendered in <span style="color:green">green</span>.</p>
+<p>Each row has a <strong>Delete</strong> button that submits a <code>POST /tasks/delete</code> form and refreshes the page on the same filter. The Delete button is <strong>not shown</strong> for past tasks.</p>
+
+<h3><span class="method post">POST</span> <code>/tasks/delete</code> &nbsp;—&nbsp; Delete Task</h3>
+<p>Deletes the task identified by the <code>id</code> form field. After deletion, redirects to <code>/tasks/view?filter=&lt;filter&gt;</code> using the <code>filter</code> form field (defaults to <code>all</code>). Only accessible for tasks that are not past due — the Delete button is not rendered for past tasks in the UI.</p>
+<table>
+  <tr><th>Form field</th><th>Required</th><th>Description</th></tr>
+  <tr><td><code>id</code></td><td>Yes</td><td>ID of the task to delete</td></tr>
+  <tr><td><code>filter</code></td><td>No</td><td>Active filter to return to after deletion (default: <code>all</code>)</td></tr>
+</table>
 
 <h3><span class="method get">GET</span> <code>/tasks/today</code> &nbsp;—&nbsp; JSON</h3>
 <p>Returns a JSON array of tasks scheduled for today, ordered by time.</p>
@@ -92,7 +101,8 @@
   <li>User fills in Name, Description, and adjusts the date/time picker, then submits.</li>
   <li>Server validates all fields; on failure re-renders form with error; on success saves to DB and redirects back with a confirmation banner.</li>
   <li>User browses to <code>/tasks/view</code> (or <code>/tasks</code>) to see all tasks with filter buttons.</li>
-  <li>Past tasks appear in green; active filter button is highlighted.</li>
+  <li>Past tasks appear in green; active filter button is highlighted. Delete is not available for past tasks.</li>
+  <li>To delete a future task, click the Delete button — the row is removed and the page reloads on the same filter.</li>
   <li>Programmatic clients can query <code>/tasks/today</code>, <code>/tasks/tomorrow</code>, or <code>/tasks/weekly</code> for JSON responses.</li>
 </ol>
 
